@@ -222,6 +222,7 @@ Use an ingest node to pre-process documents before the actual document indexing 
   "description" : "app-log-pipeline",
   "processors" : [
     {
+      ### 从文档中的单个文本字段message中提取结构化字段
       "grok" : {
         "field" : "message",
         "patterns" :["\\[%{TIMESTAMP_ISO8601:timestamp}\\] \\[%{WORD:topic}\\] \\[%{DATA:thread}\\] %{WORD:level} (?<msg>[\\s\\S]*)"]
@@ -250,24 +251,62 @@ output.elasticsearch:
 
 ### 3.3 Grok
 
-在上节中的`app-log-pipeline.json`中，我们使用了Grok将非结构化事件数据message解析为多个字段timestamp、topic、thread、level、msg：
+Grok是迄今为止使蹩脚的、非结构化的日志结构化和可查询的最好方式。Grok在解析 syslog logs、apache and other webserver logs、mysql logs等任意格式的文件上表现完美。
+
+在LogStash的[Grok Filter](https://www.elastic.co/guide/en/logstash/7.2/plugins-filters-grok.html)、Elasticsearch的[Grok Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.2/grok-processor.html)中都使用到了Grok。
+
+在上节中的`app-log-pipeline.json`中，我们使用了Grok  Processor将非结构化事件数据message解析为多个字段timestamp、topic、thread、level、msg：
+
 ```
+      ### 从文档中的单个文本字段message中提取结构化字段
       "grok" : {
         "field" : "message",
         "patterns" :["\\[%{TIMESTAMP_ISO8601:timestamp}\\] \\[%{WORD:topic}\\] \\[%{DATA:thread}\\] %{WORD:level} (?<msg>[\\s\\S]*)"]
       }
 ```
-Grok是迄今为止使蹩脚的、非结构化的日志结构化和可查询的最好方式。Grok在解析 syslog logs、apache and other webserver logs、mysql logs等任意格式的文件上表现完美。
-
-在LogStash的[Grok Filter](https://www.elastic.co/guide/en/logstash/7.2/plugins-filters-grok.html)（更多Filter详见[Filter Plugins](https://www.elastic.co/guide/en/logstash/7.2/filter-plugins.html)）、Elasticsearch的[Grok Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.2/grok-processor.html)（更多Processor详见[Processors](https://www.elastic.co/guide/en/elasticsearch/reference/7.2/ingest-processors.html)）中都使用到了Grok。
 
 Grok内置了120多种的正则表达式库，源代码地址：[https://github.com/logstash-plugins/logstash-patterns-core/tree/master/patterns](https://github.com/logstash-plugins/logstash-patterns-core/tree/master/patterns)。
 
 >提示：在数据处理管道中使用之前，您可以在Kibana [Grok Debugger](https://www.elastic.co/guide/en/kibana/current/xpack-grokdebugger.html)中构建和调试grok模式。
 
-### 3.4 Processors
-[Processors](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/ingest-processors.html)
+### 3.4 Processors/Filter
+除了Grok Processor/Filter，经常还需要用到其它的一些Processor/Filter，如geoid、date、user_agent、remove等，示例如下：
+```
+{
+  "description" : "apache-log-pipeline",
+  "processors" : [
+    {
+      ### 从文档中的单个文本字段message中提取结构化字段
+      "grok" : {
+        "field" : "message",
+        "patterns" :["%{IPORHOST:clientip} %{USER:ident} %{USER:auth} \\[%{HTTPDATE:timestamp}\\] \"%{WORD:verb} %{DATA:request} HTTP/%{NUMBER:httpversion}\" %{NUMBER:response:int} (?:-|%{NUMBER:bytes:int}) %{QS:referrer} %{QS:useragent}"]
+      },
+      ### 添加关于IP地址的地理位置信息（基于MaxMind数据库中的数据）
+      "geoip" : {
+        "field" : "clientip",
+        "target_field": "geo"
+      },
+      ### 解析字段中的日期，然后使用日期或时间戳作为文档的时间戳
+      "date" : {
+        "field" : "timestamp",
+        "target_field" : "@timestamp",
+        "formats" : ["dd/MMM/yyyy:HH:mm:ss Z"],
+        "timezone" : "Asia/Shanghai"
+      },
+      ### 从浏览器发送Web请求中所述的user_agent字符串中提取细节信息
+      "user_agent" : {
+        "field" : "useragent"
+      },
+      ### 删除现有字段
+      "remove": {
+      	"field": "message"
+      }
+    }
+  ]
+}
+```
 
+#### [Processors](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/ingest-processors.html)
 *   [Append Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/append-processor.html)
 *   [Bytes Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/bytes-processor.html)
 *   [Convert Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/convert-processor.html)
@@ -298,8 +337,19 @@ Grok内置了120多种的正则表达式库，源代码地址：[https://github.
 *   [URL Decode Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/urldecode-processor.html)
 *   [User Agent processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/user-agent-processor.html)
 
-## 4、引入消息队列
-(背景说明）
+#### [Filter plugins](https://www.elastic.co/guide/en/logstash/7.2/filter-plugins.html)
+详见[Filter plugins](https://www.elastic.co/guide/en/logstash/7.2/filter-plugins.html)
+
+## 4、引入消息队列作为缓冲
+为了处理为生产中处理大量数据而构建的更复杂的管道，可能会在日志记录体系结构中添加其他组件，以实现弹性（Kafka，RabbitMQ，Redis）和安全性（nginx）：
+
+![image.png](https://upload-images.jianshu.io/upload_images/1636821-cd5fdd978f52f208.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+
+引入消息队列中间件作为缓冲，beats采集到的数据先输出到消息队列中，再由logstash作为队列的消费者进行数据处理后，输出到elasticsearch。
+
+出于说明的目的，这当然是简化图。完整的生产级体系结构将包含多个Elasticsearch节点，可能包含多个Logstash实例、归档机制、警报插件以及跨数据中心区域或部分的完全复制，以实现高可用性。
+
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-9930a5dc09096dcd.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 ### 4.1 redis方案
@@ -403,18 +453,147 @@ output {
 ## 5、其它最佳实践
 
 ### 5.1 使用Security增加访问安全性
+- #### 身份验证-安全登录
 
-### 5.2 使用Alerting告警
+  &nbsp;&nbsp;&nbsp;&nbsp;要想保护流经 Elasticsearch、Kibana、Beats 和 Logstash 的数据，以免数据受到意外修改或被未经授权用户的访问，这是第一步。
+
+[启用Elasticsearch安全功能](https://www.elastic.co/guide/en/elastic-stack-overview/7.2/get-started-enable-security.html)
+
+```
+xpack.security.enabled: true
+### 需要额外设置此选项，否则启动时会报错
+xpack.security.transport.ssl.enabled: true
+```
+
+[为内置用户创建密码](https://www.elastic.co/guide/en/elastic-stack-overview/7.2/get-started-built-in-users.html)
+
+```
+./bin/elasticsearch-setup-passwords interactive
+```
+
+[将内置用户添加到Kibana](https://www.elastic.co/guide/en/elastic-stack-overview/7.2/get-started-kibana-user.html)
+
+如果您不介意在配置文件中显示密码，请取消注释并更新kibana.yml
+```
+elasticsearch.username: "kibana"
+elasticsearch.password: "123456"
+```
+
+如果您不想将用户ID和密码放在kibana.yml文件中，请将它们存储在密钥库中
+```
+./bin/kibana-keystore create
+./bin/kibana-keystore add elasticsearch.username
+./bin/kibana-keystore add elasticsearch.password
+```
+此时，登录Kibana将出现登录页面，需要输入内置的超级用户权限帐号`elastic`进行登录。
+![image.png](https://upload-images.jianshu.io/upload_images/1636821-3a47b7c8f8f6522a.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+
+- 授权-管理用户和角色
+
+交付给用户使用时，一般会创建最小权限的用户，示例：
+在`Management / Security`中创建用户，并分配分配`kibana_user `内置角色
+
+- [在Logstash中添加用户信息](https://www.elastic.co/guide/en/elastic-stack-overview/7.2/get-started-logstash-user.html)
+
+- 如果您不介意在配置文件中显示密码，请 在Logstash目录中的文件中添加以下内容user和password设置demo-metrics-pipeline.conf：
+
+```
+...
+output {
+  elasticsearch {
+    ...
+    user => "logstash_system" 
+    password => "123456" 
+  }
+}
+```
+
+- 如果您不想将您的用户ID和密码放在配置文件中，请将它们存储在密钥库中。
+
+```
+set +o history
+export LOGSTASH_KEYSTORE_PASS=mypassword 
+set -o history
+./bin/logstash-keystore create
+./bin/logstash-keystore add ES_USER
+./bin/logstash-keystore add ES_PWD
+```
+
+```
+output {
+  elasticsearch {
+    ...
+    user => "${ES_USER}"
+    password => "${ES_PWD}"
+  }
+}
+```
+
+- 在filebeat中添加用户信息
+- 如果您不介意在配置文件中显示密码，请 在Logstash目录中的文件中添加以下内容user和password设置demo-metrics-pipeline.conf：
+
+```
+...
+output {
+  elasticsearch {
+    ...
+    user => "logstash_system" 
+    password => "123456" 
+  }
+}
+```
+
+- 如果您不想将您的密码放在配置文件中，请将它们存储在密钥库中。
+
+```
+filebeat keystore create
+filebeat keystore add ES_PWD
+```
+
+```
+output {
+  elasticsearch {
+    ...
+    user => "logstash_system"
+    password => "${ES_PWD}"
+  }
+}
+```
+
+>注意：
+如果您直接从Metricbeat连接到Elasticsearch，则需要在Metricbeat配置文件中为Elasticsearch输出配置身份验证凭据。在 [入门弹性堆栈](https://www.elastic.co/guide/en/elastic-stack-get-started/7.2/get-started-elastic-stack.html)，但是，你配置Metricbeat发送数据到Logstash额外的解析，所以在Metricbeat不需要额外的设置。
+
+
+参考：[Tutorial: Getting started with security](https://www.elastic.co/guide/en/elastic-stack-overview/7.2/security-getting-started.html)
+
+以下功能为非基础许可证所有功能，详见：[订阅 · Elastic Stack 产品和支持 | Elastic](https://www.elastic.co/cn/subscriptions)
+- 加密-防止嗅探、篡改和监听
+- 分层安全-全方位保护，直到字段级
+- 审核日志-记录何人何时做过何事
+- 合规性-符合安全标准
+
+### 5.2 [使用Alerting告警](https://www.elastic.co/cn/products/stack/alerting)
+
+非基础许可证所有功能，详见：[订阅 · Elastic Stack 产品和支持 | Elastic](https://www.elastic.co/cn/subscriptions)
+TODO:待研究...[ELK借助*ElastAlert*实现故障提前感知预警功能](https://www.baidu.com/link?url=dlWj6gc5Pgl-3TGgbMlZdsch6Kp1bofta_VD6a7ml966nZdt03bMcp0MSzAMXIaz8kSAi3D6bmxxv34klmVZoa&wd=&eqid=b238721400080836000000065cf62e16)
+
 
 ### 5.3 使用MetricBeat监控服务器
 
 ### 5.4 使用图表和仪表盘可视化分析Web访问日志
+
 
 ### 5.5 APM插件
 
 ### 5.7 Index Lifecycle Policies
 
 ### 5.6 使用Logstash限流
+
+### 5.8 调整JVM内存大小
+
+### 5.9 ELASTIC 运行状态监控
+
 Beats平台设置最简单的架构包括一个或多个Beats，Elasticsearch和Kibana。这种架构易于入门，足以满足低流量网络的需求。它还使用最少量的服务器：运行Elasticsearch和Kibana的单台机器。Beats将事务直接插入Elasticsearch实例。
 
 但是，如果要对数据执行其他处理或缓冲，则需要安装Logstash。
@@ -430,6 +609,8 @@ Beats平台设置最简单的架构包括一个或多个Beats，Elasticsearch和
 ## Filebeat+Logstash+Elasticsearch+Kibana方案
 
 ## Cluster方案
+
+## 快速安装包
 
 # 三、...
 
