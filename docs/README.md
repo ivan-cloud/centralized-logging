@@ -26,8 +26,149 @@
 >&nbsp;&nbsp;&nbsp;&nbsp;[Fluentd](https://www.fluentd.org/) 是 [Treasure Data](https://www.treasuredata.com/) 开发的，[CNCF](https://www.cncf.io/) 已经将它作为一个孵化项目。它是用 C 和 Ruby 编写的，并被 [AWS](https://aws.amazon.com/blogs/aws/all-your-data-fluentd/) 和 [Google Cloud](https://cloud.google.com/logging/docs/agent/) 所推荐。Fluentd 已经成为许多系统中 logstach 的常用替代品。它可以作为一个本地聚合器，收集所有节点日志并将其发送到中央存储系统。它不是日志聚合系统。
 
 TODO: Fluentd vs Beats
+![image.png](https://upload-images.jianshu.io/upload_images/1636821-ed5ecb18b75c1ad4.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 4. 阿里云日志服务（云计算）
+![image.png](https://upload-images.jianshu.io/upload_images/1636821-2460cb748a156f61.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+## 4、日志采集工具对比
+
+### Logstash
+Logstash 不是这个列表里最老的传输工具（最老的应该是 syslog-ng ，讽刺的是它也是唯一一个名字里带有 new 的），但 Logstash 绝对可以称得上最有名的。因为它有很多插件：输入、编解码器、过滤器以及输出。基本上，可以获取并丰富任何数据，然后将它们推送到多种目标存储。
+
+- **优势**
+
+Logstash 主要的有点就是它的**灵活性**，这还主要因为它有很多插件。然后它清楚的文档已经直白的配置格式让它可以再多种场景下应用。这样的良性循环让我们可以在网上找到很多资源，几乎可以处理任何问题。
+
+- **劣势**
+
+Logstash 致命的问题是它的**性能以及资源消耗**（默认的堆大小是 1GB）。尽管它的性能在近几年已经有很大提升，与它的替代者们相比还是要慢很多的。这里有 Logstash 与 rsyslog 性能对比以及Logstash 与 filebeat 的性能对比。它在大数据量的情况下会是个问题。
+
+另一个问题是它目前**不支持缓存**，目前的典型替代方案是将 Redis 或 Kafka 作为中心缓冲池：
+
+- **典型应用场景**
+
+因为 Logstash 自身的灵活性以及网络上丰富的资料，Logstash 适用于原型验证阶段使用，或者解析非常的复杂的时候。在不考虑服务器资源的情况下，如果服务器的性能足够好，我们也可以为每台服务器安装 Logstash 。我们也不需要使用缓冲，因为文件自身就有缓冲的行为，而 Logstash 也会记住上次处理的位置。
+
+如果服务器性能较差，并不推荐为每个服务器安装 Logstash ，这样就需要一个轻量的日志传输工具，将数据从服务器端经由一个或多个 Logstash 中心服务器传输到 Elasticsearch。
+
+随着日志项目的推进，可能会因为性能或代价的问题，需要调整日志传输的方式（log shipper）。当判断 Logstash 的性能是否足够好时，重要的是对吞吐量的需求有着准确的估计，这也决定了需要为 Logstash 投入多少硬件资源。
+
+
+### Filebeat
+
+作为 Beats 家族的一员，Filebeat 是一个轻量级的日志传输工具，它的存在正弥补了 Logstash 的缺点：Filebeat 作为一个轻量级的日志传输工具可以将日志推送到中心 Logstash。
+
+在版本 5.x 中，Elasticsearch 具有解析的能力（像 Logstash 过滤器）— Ingest。这也就意味着可以将数据直接用 Filebeat 推送到 Elasticsearch，并让 Elasticsearch 既做解析的事情，又做存储的事情。也不需要使用缓冲，因为 Filebeat 也会和 Logstash 一样记住上次读取的偏移：
+
+如果需要缓冲（例如，不希望将日志服务器的文件系统填满），可以使用 Redis/Kafka，因为 Filebeat 可以与它们进行通信：
+
+- **优势**
+
+Filebeat 只是一个二进制文件没有任何依赖。它**占用资源极少**，尽管它还十分年轻，正式因为它简单，所以几乎没有什么可以出错的地方，所以它的可靠性还是很高的。它也为我们提供了很多可以调节的点，例如：它以何种方式搜索新的文件，以及当文件有一段时间没有发生变化时，何时选择关闭文件句柄。
+
+- **劣势**
+
+Filebeat 的**应用范围十分有限**，所以在某些场景下我们会碰到问题。例如，如果使用 Logstash 作为下游管道，我们同样会遇到性能问题。正因为如此，Filebeat 的范围在扩大。开始时，它只能将日志发送到 Logstash 和 Elasticsearch，而现在它可以将日志发送给 Kafka 和 Redis，在 5.x 版本中，它还具备过滤的能力。
+
+- **典型应用场景**
+
+Filebeat 在解决某些特定的问题时：日志存于文件，我们希望将日志直接传输存储到 Elasticsearch。这仅在我们只是抓去（grep）它们或者日志是存于 JSON 格式（Filebeat 可以解析 JSON）。或者如果打算使用 Elasticsearch 的 Ingest 功能对日志进行解析和丰富。
+
+将日志发送到 Kafka/Redis。所以另外一个传输工具（例如，Logstash 或自定义的 Kafka 消费者）可以进一步丰富和转发。这里假设选择的下游传输工具能够满足我们对功能和性能的要求。
+
+### Fluentd
+
+Fluentd 创建的初衷主要是尽可能的使用 JSON 作为日志输出，所以传输工具及其下游的传输线不需要猜测子字符串里面各个字段的类型。这样，它为几乎所有的语言都提供库，这也意味着，我们可以将它插入到我们自定义的程序中。
+
+- **优势**
+
+和多数 Logstash 插件一样，Fluentd 插件是用 Ruby 语言开发的非常易于编写维护。所以它数量很多，几乎所有的源和目标存储都有插件（各个插件的成熟度也不太一样）。这也意味这我们可以用 Fluentd 来串联所有的东西。
+
+- **劣势**
+
+因为在多数应用场景下，我们会通过 Fluentd 得到结构化的数据，它的**灵活性并不好**。但是我们仍然可以通过正则表达式，来解析非结构化的数据。尽管，性能在大多数场景下都很好，但它并不是最好的，和 syslog-ng 一样，它的缓冲只存在与输出端，单线程核心以及 Ruby GIL 实现的插件意味着它大的节点下**性能是受限的**，不过，它的资源消耗在大多数场景下是可以接受的。对于小的或者嵌入式的设备，可能需要看看 Fluent Bit，它和 Fluentd 的关系与 Filebeat 和 Logstash 之间的关系类似
+
+- **典型应用场景**
+
+Fluentd 在日志的数据源和目标存储各种各样时非常合适，因为它有很多插件。而且，如果大多数数据源都是自定义的应用，所以可以发现用 fluentd 的库要比将日志库与其他传输工具结合起来要容易很多。特别是在我们的应用是多种语言编写的时候，即我们使用了多种日志库，日志的行为也不太一样。
+
+### Logagent
+
+Logagent 是 Sematext 提供的传输工具，它用来将日志传输到 Logsene（一个基于 SaaS 平台的 Elasticsearch API），因为 Logsene 会暴露 Elasticsearch API，所以 Logagent 可以很容易将数据推送到 Elasticsearch 。
+
+- **优势**
+
+可以获取 /var/log 下的所有信息，解析各种格式（Elasticsearch，Solr，MongoDB，Apache HTTPD等等），它可以掩盖敏感的数据信息，例如，个人验证信息（PII），出生年月日，信用卡号码，等等。它还可以基于 IP 做 GeoIP 丰富地理位置信息（例如，access logs）。同样，**它轻量又快速**，可以将其置入任何日志块中。在新的 2.0 版本中，它以第三方 node.js 模块化方式增加了支持对输入输出的处理插件。重要的是 Logagent **有本地缓冲**，所以不像 Logstash ，在数据传输目的地不可用时会丢失日志。
+
+- **劣势**
+
+尽管 Logagent 有些比较有意思的功能（例如，接收 Heroku 或 CloudFoundry 日志），但是它并**没有 Logstash 灵活**。
+
+- **典型应用场景**
+
+Logagent 作为一个可以做所有事情的传输工具是值得选择的（提取、解析、缓冲和传输）。
+
+
+### logtail
+
+阿里云日志服务的生产者，目前在阿里集团内部机器上运行，经过3年多时间的考验，目前为阿里公有云用户提供日志收集服务。
+
+采用C++语言实现，对稳定性、资源控制、管理等下过很大的功夫，性能良好。相比于logstash、fluentd的社区支持，logtail功能较为单一，专注日志收集功能。
+
+- **优势**
+
+logtai**l占用机器cpu、内存资源最少**，结合阿里云日志服务的E2E体验良好。
+
+- **劣势**
+
+logtail目前**对特定日志类型解析的支持较弱**，后续需要把这一块补起来。
+
+
+### rsyslog
+
+绝大多数 Linux 发布版本默认的 syslog 守护进程，rsyslog 可以做的不仅仅是将日志从 syslog socket 读取并写入 /var/log/messages 。它可以提取文件、解析、缓冲（磁盘和内存）以及将它们传输到多个目的地，包括 Elasticsearch 。可以从此处找到如何处理 Apache 以及系统日志。
+
+- **优势**
+
+rsyslog 是经测试过的**最快的传输工具**。如果只是将它作为一个简单的 router/shipper 使用，几乎所有的机器都会受带宽的限制，但是它非常擅长处理解析多个规则。它基于语法的模块（mmnormalize）无论规则数目如何增加，它的处理速度始终是线性增长的。这也就意味着，如果当规则在 20-30 条时，如解析 Cisco 日志时，它的性能可以大大超过基于正则式解析的 grok ，达到 100 倍（当然，这也取决于 grok 的实现以及 liblognorm 的版本）。
+
+它同时也是我们能找到的最轻的解析器，当然这也取决于我们配置的缓冲。
+
+- **劣势**
+
+rsyslog 的**配置工作需要更大的代价**（这里有一些例子），这让两件事情非常困难：
+
+文档难以搜索和阅读，特别是那些对术语比较陌生的开发者。
+
+5.x 以上的版本格式不太一样（它扩展了 syslogd 的配置格式，同时也仍然支持旧的格式），尽管新的格式可以兼容旧格式，但是新的特性（例如，Elasticsearch 的输出）只在新的配置下才有效，然后旧的插件（例如，Postgres 输出）只在旧格式下支持。
+
+尽管在配置稳定的情况下，rsyslog 是可靠的（它自身也提供多种配置方式，最终都可以获得相同的结果），它还是存在一些 bug 。
+
+- **典型应用场景**
+
+rsyslog 适合那些非常轻的应用（应用，小VM，Docker容器）。如果需要在另一个传输工具（例如，Logstash）中进行处理，可以直接通过 TCP 转发 JSON ，或者连接 Kafka/Redis 缓冲。
+
+rsyslog 还适合我们对性能有着非常严格的要求时，特别是在有多个解析规则时。那么这就值得为之投入更多的时间研究它的配置。
+
+
+### syslog-ng
+
+可以将 syslog-ng 当作 rsyslog 的替代品（尽管历史上它们是两种不同的方式）。它也是一个模块化的 syslog 守护进程，但是它可以做的事情要比 syslog 多。它可以接收磁盘缓冲并将 Elasticsearch HTTP 作为输出。它使用 PatternDB 作为语法解析的基础，作为 Elasticsearch 的传输工具，它是一个不错的选择。
+
+- **优势**
+
+和 rsyslog 一样，作为一个**轻量级的传输工具**，它的性能也非常好。它曾经比 rsyslog 慢很多，但是 2 年前能达到 570K Logs/s 的性能并不差。并不像 rsyslog ，它有着明确一致的配置格式以及完好的文档。
+
+- **劣势**
+
+Linux 发布版本转向使用 rsyslog 的原因是 syslog-ng 高级版曾经有很多功能在开源版中都存在，但是后来又有所限制。我们这里只关注与开源版本，所有的日志传输工具都是开源的。现在又有所变化，例如磁盘缓冲，曾经是高级版存在的特性，现在开源版也有。但有些特性，例如带有应用层的通知的可靠传输协议（reliable delivery protocol）还没有在开源版本中。
+
+- **典型应用场景**
+
+和 rsyslog 类似，可能将 syslog-ng 部署在资源受限的环境中，但仍希望它能在处理复杂计算时有着良好的性能。如果使用 rsyslog ，它可以输出至 Kafka ，以 Kafka 作为一个中心队列，并以 Logstash 作为一个自定义消费者。
+
+不同的是，**syslog-ng 使用起来比 rsyslog 更容易，性能没有 rsyslog 那么极致**：例如，它只对输出进行缓冲，所以它所有的计算处理在缓冲之前就完成了，这也意味着它会给日志流带来压力。
 
 # 二、Elastic Stack
 
@@ -235,9 +376,10 @@ Use an ingest node to pre-process documents before the actual document indexing 
 
 在Elasticsearch中添加管道：
 ```
+### 如果elasticsearch启用了身份验证，则需要再加上参数`--user username:password`
 curl -H 'Content-Type: application/json' -XPUT 'http://localhost:9200/_ingest/pipeline/app-log-pipeline' -d@/work/app-log-pipeline.json
-
 ```
+
 修改配置文件：
 ```
 output.elasticsearch:
@@ -306,7 +448,8 @@ Grok内置了120多种的正则表达式库，源代码地址：[https://github.
 }
 ```
 
-#### [Processors](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/ingest-processors.html)
+#### Processors
+
 *   [Append Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/append-processor.html)
 *   [Bytes Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/bytes-processor.html)
 *   [Convert Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/convert-processor.html)
@@ -337,7 +480,7 @@ Grok内置了120多种的正则表达式库，源代码地址：[https://github.
 *   [URL Decode Processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/urldecode-processor.html)
 *   [User Agent processor](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/user-agent-processor.html)
 
-#### [Filter plugins](https://www.elastic.co/guide/en/logstash/7.2/filter-plugins.html)
+#### Filter plugins
 详见[Filter plugins](https://www.elastic.co/guide/en/logstash/7.2/filter-plugins.html)
 
 ## 4、引入消息队列作为缓冲
@@ -453,6 +596,7 @@ output {
 ## 5、其它最佳实践
 
 ### 5.1 使用Security增加访问安全性
+
 - #### 身份验证-安全登录
 
   &nbsp;&nbsp;&nbsp;&nbsp;要想保护流经 Elasticsearch、Kibana、Beats 和 Logstash 的数据，以免数据受到意外修改或被未经授权用户的访问，这是第一步。
@@ -489,7 +633,7 @@ elasticsearch.password: "123456"
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-3a47b7c8f8f6522a.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 
-- 授权-管理用户和角色
+- #### 授权-管理用户和角色
 
 交付给用户使用时，一般会创建最小权限的用户，示例：
 在`Management / Security`中创建用户，并分配分配`kibana_user `内置角色
@@ -573,16 +717,29 @@ output {
 - 审核日志-记录何人何时做过何事
 - 合规性-符合安全标准
 
-### 5.2 [使用Alerting告警](https://www.elastic.co/cn/products/stack/alerting)
+### 5.2 使用Alerting告警
 
-非基础许可证所有功能，详见：[订阅 · Elastic Stack 产品和支持 | Elastic](https://www.elastic.co/cn/subscriptions)
+[Alerting告警](https://www.elastic.co/cn/products/stack/alerting)为非基础许可证所有功能，详见：[订阅 · Elastic Stack 产品和支持 | Elastic](https://www.elastic.co/cn/subscriptions)
 TODO:待研究...[ELK借助*ElastAlert*实现故障提前感知预警功能](https://www.baidu.com/link?url=dlWj6gc5Pgl-3TGgbMlZdsch6Kp1bofta_VD6a7ml966nZdt03bMcp0MSzAMXIaz8kSAi3D6bmxxv34klmVZoa&wd=&eqid=b238721400080836000000065cf62e16)
 
 
 ### 5.3 使用MetricBeat监控服务器
 
-### 5.4 使用图表和仪表盘可视化分析Web访问日志
+### 5.4 自定义输出elasticsearch index
+由于系统默认启用ilm，`output.elasticsearch.index`配置将被覆盖，因此可以使用如下配置自定义输出elasticsearch index：
+```
+### customize index name
+setup.ilm.rollover_alias: "applog"
+setup.ilm.pattern: "{now/d}-000001"
+output.elasticsearch:
+  ...
+  # index: "applog-%{[agent.version]}-%{+yyyy.MM.dd}"
+```
+### 5.4 可视化分析Web访问日志
 
+通过采集Nginx等Web服务器上的访问日志，使用图表和仪表盘进行可视化分析：
+
+![FireShot Capture 006 - yh-Web访问日志分析 - Kibana - localhost.png](https://upload-images.jianshu.io/upload_images/1636821-e09e5f94a24c03de.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 ### 5.5 APM插件
 
@@ -602,16 +759,56 @@ Beats平台设置最简单的架构包括一个或多个Beats，Elasticsearch和
 
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-af1e91152a94891d.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
+## 6、Cluster方案
 
+## 7、快速安装包
 
-## Filebeat+Elasticsearch+Kibana方案
-
-## Filebeat+Logstash+Elasticsearch+Kibana方案
-
-## Cluster方案
-
-## 快速安装包
+## 8、大数据扩展
 
 # 三、...
 
 # 四、阿里云日志服务
+
+## 使用Producer Library采集日志
+
+Aliyun LOG Java Producer 是一个易于使用且高度可配置的 Java 类库，专门为运行在大数据、高并发场景下的 Java 应用量身打造。
+
+Github 项目地址以及更多详细说明请参见[Aliyun LOG Java Producer](https://github.com/aliyun/aliyun-log-producer)
+
+1. 编写继承自`AppenderBase`的自定义Appender`AliyunLogAppender`
+2. 配置`logback.xml`，增加新的Appender
+
+```
+<appender name="aliyun" class="com.example.log.AliyunLogAppender">
+        <projectName>${project.name}</projectName>
+        <logstore>${env}</logstore>
+        <endpoint>exe-test.cn-beijing.log.aliyuncs.com</endpoint>
+        <accessKey>${access.key}</accessKeyId>
+        <accessSecret>${access.secret}</accessKey>
+        <topic>${app.name}</topic>
+        <timeFormat>yyyy-MM-dd HH:mm:ss</timeFormat>
+        <timeZone>GMT+8</timeZone>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
+        <layout class="com.exe.core.log.FilterMessagePatternLayout">
+            <pattern>%d [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </layout>
+    </appender>
+    ...
+    <root level="debug">
+        ...
+        <appender-ref ref="aliyun"/>
+    </root>
+```
+
+只需要这两步，就可以开始使用日志聚合和可视化查询：
+![image.png](https://upload-images.jianshu.io/upload_images/1636821-71eb82ace75a2e04.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+## 云产品采集-负载均衡7层访问日志
+[https://help.aliyun.com/document_detail/66828.html?spm=a2c4g.11186623.6.646.42551519Egyw0M](https://help.aliyun.com/document_detail/66828.html?spm=a2c4g.11186623.6.646.42551519Egyw0M)
+
+## 可视化分析、图表分析、仪表盘
+[https://help.aliyun.com/document_detail/102530.html?spm=a2c4g.11186623.6.844.5485566aKsTXr6](https://help.aliyun.com/document_detail/102530.html?spm=a2c4g.11186623.6.844.5485566aKsTXr6)
+
+## 聚类分析
