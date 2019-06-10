@@ -1,3 +1,4 @@
+# 日志聚合和可视化
 标签（空格分隔）： 架构 日志 聚合
 
 ---
@@ -31,7 +32,6 @@
 3. Fluentd
 >&nbsp;&nbsp;&nbsp;&nbsp;[Fluentd](https://www.fluentd.org/) 是 [Treasure Data](https://www.treasuredata.com/) 开发的，[CNCF](https://www.cncf.io/) 已经将它作为一个孵化项目。它是用 C 和 Ruby 编写的，并被 [AWS](https://aws.amazon.com/blogs/aws/all-your-data-fluentd/) 和 [Google Cloud](https://cloud.google.com/logging/docs/agent/) 所推荐。Fluentd 已经成为许多系统中 logstach 的常用替代品。它可以作为一个本地聚合器，收集所有节点日志并将其发送到中央存储系统。它不是日志聚合系统。
 
-TODO: Fluentd vs Beats
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-ed5ecb18b75c1ad4.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 4. 阿里云日志服务（云计算）
@@ -50,7 +50,7 @@ Logstash 主要的有点就是它的**灵活性**，这还主要因为它有很�
 
 Logstash 致命的问题是它的**性能以及资源消耗**（默认的堆大小是 1GB）。尽管它的性能在近几年已经有很大提升，与它的替代者们相比还是要慢很多的。这里有 Logstash 与 rsyslog 性能对比以及Logstash 与 filebeat 的性能对比。它在大数据量的情况下会是个问题。
 
-另一个问题是它目前**不支持缓存**，目前的典型替代方案是将 Redis 或 Kafka 作为中心缓冲池：
+另一个问题是它目前**不支持缓存**，目前的典型替代方案是将 Redis 或 Kafka 作为中心缓冲池。
 
 - **典型应用场景**
 
@@ -193,10 +193,6 @@ Logstash在JVM上运行并消耗大量资源来执行此操作。关于Logstash�
 Logstash的Java执行引擎（在版本6.3中公布为试验版）默认在版本7.x中启用。它取代了旧的Ruby执行引擎，拥有更好的性能，更少的内存使用和整体 - 更快的体验。
 
 Beats的引入和后续添加将堆栈变成了一个四脚的项目，并导致堆栈重命名为Elastic Stack。
-
-Filebeat是一个非常轻量级的托运者，占用空间小，虽然很少发现有关Filebeat的抱怨，但在某些情况下，您可能会遇到高CPU使用率。
-
-影响所用计算能力的一个因素是扫描频率 - Filebeat配置为扫描文件的频率。可以使用Filebeat配置文件中的scan_frequency设置为每个探测器定义此频率，因此如果您有大量探测器以严格的扫描频率运行，则可能导致CPU使用率过高。
 
 ![下载.png](https://upload-images.jianshu.io/upload_images/1636821-67ccf3f8c8b2c2ec.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
@@ -849,14 +845,22 @@ Elasticsearch不会为文档编制索引，它只会返回失败消息并且日�
 
 ![FireShot Capture 006 - yh-Web访问日志分析 - Kibana - localhost.png](https://upload-images.jianshu.io/upload_images/1636821-e09e5f94a24c03de.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
-### 5.7 使用Alerting告警
+### 5.7 Filebeat CPU使用率
+
+Filebeat是一个非常轻量级的托运者，占用空间小，虽然很少发现有关Filebeat的抱怨，但在某些情况下，您可能会遇到高CPU使用率。
+
+影响所用计算能力的一个因素是扫描频率 - Filebeat配置为扫描文件的频率。可以使用Filebeat配置文件中的scan_frequency设置为每个探测器定义此频率，因此如果您有大量探测器以严格的扫描频率运行，则可能导致CPU使用率过高。
+
+参考：*   [Why is Filebeat using too much CPU?](https://www.elastic.co/guide/en/beats/filebeat/1.1/filebeat-cpu.html)
+
+### 5.8 使用Alerting告警
 
 [Alerting告警](https://www.elastic.co/cn/products/stack/alerting)为非基础许可证所有功能，详见：[订阅 · Elastic Stack 产品和支持 | Elastic](https://www.elastic.co/cn/subscriptions)
 TODO:待研究...[ELK借助*ElastAlert*实现故障提前感知预警功能](https://www.baidu.com/link?url=dlWj6gc5Pgl-3TGgbMlZdsch6Kp1bofta_VD6a7ml966nZdt03bMcp0MSzAMXIaz8kSAi3D6bmxxv34klmVZoa&wd=&eqid=b238721400080836000000065cf62e16)
 
-### 5.8 使用MetricBeat监控服务器
+### 5.9 使用MetricBeat监控服务器
 
-### 5.9 APM插件
+### 5.10 APM插件
 
 ## 6、Cluster方案
 
@@ -876,7 +880,7 @@ Elasticsearch-Hadoop (ES-Hadoop) 连接器将 Hadoop 海量的数据存储和深
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-47faca3a5c425c84.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 
-# 四、阿里云日志服务
+# 三、阿里云日志服务
 [查询分析全方位对比（ELK）](https://help.aliyun.com/document_detail/59070.html?spm=a2c4g.11186623.6.552.278a31789FDFe5)
 
 [查询方案（ELK/Hive）对比](https://help.aliyun.com/document_detail/48204.html?spm=a2c4g.11186623.6.553.10bf5c8fpeb13X)
@@ -923,11 +927,14 @@ Github 项目地址以及更多详细说明请参见[Aliyun LOG Java Producer](h
 [典型使用场景](https://help.aliyun.com/document_detail/29090.html)
 
 - 云产品采集-负载均衡7层访问日志
+
 [https://help.aliyun.com/document_detail/66828.html?spm=a2c4g.11186623.6.646.42551519Egyw0M](https://help.aliyun.com/document_detail/66828.html?spm=a2c4g.11186623.6.646.42551519Egyw0M)
 
 - 可视化分析、图表分析、仪表盘
+
 [https://help.aliyun.com/document_detail/102530.html?spm=a2c4g.11186623.6.844.5485566aKsTXr6](https://help.aliyun.com/document_detail/102530.html?spm=a2c4g.11186623.6.844.5485566aKsTXr6)
 
 - 聚类分析
+
 [https://help.aliyun.com/document_detail/100039.html?spm=5176.11065259.1996646101.searchclickresult.13fc56e37dNOnn](https://help.aliyun.com/document_detail/100039.html?spm=5176.11065259.1996646101.searchclickresult.13fc56e37dNOnn)
 
