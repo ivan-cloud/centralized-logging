@@ -2,6 +2,9 @@
 标签（空格分隔）： 架构 日志 聚合
 
 ---
+标签（空格分隔）： 架构 日志 聚合
+
+---
 
 # 一、背景需求&常见方案
 ## 1、日志分类和作用
@@ -851,7 +854,7 @@ Filebeat是一个非常轻量级的托运者，占用空间小，虽然很少发
 
 影响所用计算能力的一个因素是扫描频率 - Filebeat配置为扫描文件的频率。可以使用Filebeat配置文件中的scan_frequency设置为每个探测器定义此频率，因此如果您有大量探测器以严格的扫描频率运行，则可能导致CPU使用率过高。
 
-参考：*   [Why is Filebeat using too much CPU?](https://www.elastic.co/guide/en/beats/filebeat/1.1/filebeat-cpu.html)
+参考：[Why is Filebeat using too much CPU?](https://www.elastic.co/guide/en/beats/filebeat/1.1/filebeat-cpu.html)
 
 ### 5.8 使用Alerting告警
 
@@ -862,7 +865,42 @@ TODO:待研究...[ELK借助*ElastAlert*实现故障提前感知预警功能](htt
 
 ### 5.10 APM插件
 
-## 6、Cluster方案
+
+## 6、生产环境配置
+
+默认情况下启动的Elasticsearch只绑定到localhost地址，局域网内也无法访问，这不适合于生产环境，可以通过`network.host`配置解决。另外对于服务器数量有限的情况，也可以使用Single-node discovery模式启动单节点。
+
+```
+network.host: 192.168.52.35
+discovery.seed_hosts: ["192.168.52.35"]
+discovery.type: single-node
+```
+
+参考：
+[Important Elasticsearch configuration](https://www.elastic.co/guide/en/elasticsearch/reference/7.1/important-settings.html)
+[Bootstrap Checks](https://www.elastic.co/guide/en/elasticsearch/reference/7.2/bootstrap-checks.html)
+
+Run as a Service
+
+linux: 
+```
+sudo /bin/systemctl daemon-reload
+sudo /bin/systemctl enable elasticsearch.service
+sudo systemctl start elasticsearch.service
+sudo systemctl stop elasticsearch.service
+```
+
+elasticsearch.service文件：
+[https://github.com/elastic/elasticsearch/blob/master/distribution/packages/src/common/systemd/elasticsearch.service](https://github.com/elastic/elasticsearch/blob/master/distribution/packages/src/common/systemd/elasticsearch.service)
+
+Kibana配置参考：
+
+```
+server.host: "192.168.52.35"
+elasticsearch.hosts: ["http://192.168.52.35:9200"]
+```
+
+## 7、Cluster方案
 
 Elasticsearch由许多不同的节点类型组成，其中两个是最重要的：主节点和数据节点。主节点负责集群管理，而数据节点，顾名思义，负责数据（详细了解如何在此处设置Elasticsearch集群）。
 
@@ -872,13 +910,12 @@ Elasticsearch由许多不同的节点类型组成，其中两个是最重要的�
 
 我们建议您将Elasticsearch节点运行在不同的可用区域或数据中心的不同部分，以确保高可用性。这可以通过[Elasticsearch设置](https://www.elastic.co/guide/en/elasticsearch/reference/current/important-settings.html)来完成，该[设置](https://www.elastic.co/guide/en/elasticsearch/reference/current/important-settings.html)允许您配置要在不同AZ之间复制的每个文档。与Logstash一样，由于数据传输，由此类部署产生的成本可能非常陡峭。
 
-## 7、快速安装包
+## 8、快速安装包
 
-## 8、大数据扩展
+## 9、大数据扩展
 Elasticsearch-Hadoop (ES-Hadoop) 连接器将 Hadoop 海量的数据存储和深度加工能力与 Elasticsearch 实时搜索和分析功能进行连接。
 
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-47faca3a5c425c84.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
-
 
 # 三、阿里云日志服务
 [查询分析全方位对比（ELK）](https://help.aliyun.com/document_detail/59070.html?spm=a2c4g.11186623.6.552.278a31789FDFe5)
@@ -893,26 +930,55 @@ Aliyun LOG Java Producer 是一个易于使用且高度可配置的 Java 类库�
 
 Github 项目地址以及更多详细说明请参见[Aliyun LOG Java Producer](https://github.com/aliyun/aliyun-log-producer)
 
-只需要两个步骤，就可以使用日志聚合和可视化查询：
-1. 编写继承自`AppenderBase`的自定义Appender`AliyunLogAppender`
-2. 配置`logback.xml`，增加新的Appender
+只需要简单的几个步骤，就可以使用日志聚合和可视化查询：
+1. pom添加引用
 
 ```
-<appender name="aliyun" class="com.example.log.AliyunLogAppender">
-        <projectName>${project.name}</projectName>
-        <logstore>${env}</logstore>
-        <endpoint>exe-test.cn-beijing.log.aliyuncs.com</endpoint>
-        <accessKey>${access.key}</accessKeyId>
-        <accessSecret>${access.secret}</accessKey>
-        <topic>${app.name}</topic>
+<dependency>
+    <groupId>com.aliyun.openservices</groupId>
+    <artifactId>aliyun-log-producer</artifactId>
+    <version>0.2.0</version>
+</dependency>
+<dependency>
+    <groupId>com.aliyun.openservices</groupId>
+    <artifactId>aliyun-log</artifactId>
+    <version>0.6.31</version>
+</dependency>
+<dependency>
+    <groupId>com.google.protobuf</groupId>
+    <artifactId>protobuf-java</artifactId>
+    <version>2.5.0</version>
+</dependency>
+```
+
+>注意：由于`com.aliyun.openservices:aliyun-log`中引用的`commons-validator`是1.4.0的版本，因此项目中的`commons-validator`也需要升级为1.4.0的版本，否则会有异常。
+
+```
+ <dependency>
+    <groupId>commons-validator</groupId>
+    <artifactId>commons-validator</artifactId>
+    <version>1.4.0</version>
+</dependency>
+```
+
+2. 编写继承自`AppenderBase`的自定义Appender`AliyunLogAppender`，参考`ylzpay-common`模块下的`AliyunLogAppender`类
+
+
+3. 配置`logback.xml`，增加新的Appender
+
+```
+    <appender name="aliyun" class="com.ylzinfo.onepay.sdk.log.AliyunLogAppender">
+        <projectName>ylz</projectName>
+        <logStore>ylz-test</logStore>
+        <endpoint>ylz-test.cn-shenzhen.log.aliyuncs.com</endpoint>
+        <accessKeyId>{yourAccessKeyId}</accessKeyId>
+        <accessKeySecret>{yourAccessKeySecret}</accessKeySecret>>
+        <topic>ylzpay-test-web</topic>
         <timeFormat>yyyy-MM-dd HH:mm:ss</timeFormat>
         <timeZone>GMT+8</timeZone>
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>WARN</level>
+            <level>INFO</level>
         </filter>
-        <layout class="com.exe.core.log.FilterMessagePatternLayout">
-            <pattern>%d [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </layout>
     </appender>
     ...
     <root level="debug">
@@ -921,6 +987,7 @@ Github 项目地址以及更多详细说明请参见[Aliyun LOG Java Producer](h
     </root>
 ```
 
+效果：
 ![image.png](https://upload-images.jianshu.io/upload_images/1636821-71eb82ace75a2e04.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
 ## 日志服务其它最佳实线
